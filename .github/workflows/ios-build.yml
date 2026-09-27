@@ -1,0 +1,29 @@
+name: iOS Kotlin/Native build check
+
+on:
+  push:
+    branches:
+      - "master"
+      - "claude/**"
+  workflow_dispatch:
+
+jobs:
+  ios-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v3
+
+      # This compiles all commonMain + iosMain Kotlin code and links the Kotlin/Native
+      # framework for the iOS Simulator. It does not need code signing or the Xcode project
+      # (iosApp.xcodeproj) at all -- it's a pure Kotlin Multiplatform Gradle build, so it's the
+      # fastest way to get real compiler feedback on the iOS port.
+      - name: Compile Kotlin/Native code for the iOS Simulator
+        run: ./gradlew :app:linkDebugFrameworkIosSimulatorArm64
