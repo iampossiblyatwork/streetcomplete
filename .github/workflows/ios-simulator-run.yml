@@ -1,0 +1,94 @@
+name: iOS Simulator run
+
+on:
+  push:
+    branches:
+      - "master"
+      - "claude/**"
+  workflow_dispatch:
+
+jobs:
+  simulator-run:
+    runs-on: macos-15
+    env:
+      BUNDLE_ID: de.westnordost.streetcomplete.ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v3
+
+      # Compose Multiplatform references UIKit APIs from the iOS 26 SDK, so the default Xcode on
+      # the runner may be too old to link against it
+      - name: Select newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -E 'Xcode_[0-9.]+\.app$' | sort -V | tail -1)
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Pick an iPhone simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j \
+            | python3 -c 'import json,sys,re; d=json.load(sys.stdin)["devices"]; rs=sorted((r for r in d if "iOS" in r and any(x["name"].startswith("iPhone") for x in d[r])), key=lambda r: [int(n) for n in re.findall(r"\d+", r)]); print(next(x["udid"] for x in d[rs[-1]] if x["name"].startswith("iPhone")))')
+          echo "Using simulator $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Build app for the simulator
+        run: |
+          xcodebuild build \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -destination "id=$UDID" \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Boot simulator, install and launch app
+        run: |
+          mkdir -p sim-output
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          APP=$(find build/ios/Build/Products -maxdepth 2 -name "*.app" -type d | head -1)
+          echo "Installing $APP"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch --stdout="$PWD/sim-output/app-stdout.txt" --stderr="$PWD/sim-output/app-stderr.txt" "$UDID" "$BUNDLE_ID"
+          sleep 20
+
+      - name: Take screenshot and check the app is still running
+        run: |
+          xcrun simctl io "$UDID" screenshot sim-output/screenshot.png
+          if xcrun simctl spawn "$UDID" launchctl list | grep -q "$BUNDLE_ID"; then
+            echo "App is still running after 20s"
+          else
+            echo "::error::App is not running after 20s - it probably crashed. See app-stderr.txt and crash logs in the artifact."
+            cp ~/Library/Logs/DiagnosticReports/*.ips sim-output/ 2>/dev/null || true
+            exit 1
+          fi
+
+      # Also put the output in the job log itself, for readers that can reach the GitHub API but
+      # not the separate host artifacts are downloaded from
+      - name: Print app output and small screenshot to log
+        if: always()
+        run: |
+          echo "--- app stderr (tail) ---"; tail -n 100 sim-output/app-stderr.txt 2>/dev/null || true
+          echo "--- app stdout (tail) ---"; tail -n 50 sim-output/app-stdout.txt 2>/dev/null || true
+          if [ -f sim-output/screenshot.png ]; then
+            sips -Z 400 -s format jpeg -s formatOptions 40 sim-output/screenshot.png --out small.jpg >/dev/null
+            echo "SCREENSHOT_BASE64_BEGIN"
+            base64 -i small.jpg | fold -w 1000
+            echo "SCREENSHOT_BASE64_END"
+          fi
+
+      - name: Upload screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-output
+          path: sim-output/

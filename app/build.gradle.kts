@@ -236,6 +236,9 @@ kotlin {
             dependencies {
                 // HTTP client
                 implementation("io.ktor:ktor-client-darwin:3.5.0")
+
+                // SQLite (also used by SQLDelight's own native driver)
+                implementation("co.touchlab:sqliter:1.3.0")
             }
         }
         commonTest {
