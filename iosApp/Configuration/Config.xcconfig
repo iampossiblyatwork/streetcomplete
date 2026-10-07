@@ -1,6 +1,7 @@
 TEAM_ID=
 
 PRODUCT_NAME=StreetComplete
+PRODUCT_MODULE_NAME=iosApp
 PRODUCT_BUNDLE_IDENTIFIER=de.westnordost.streetcomplete.ios
 
 CURRENT_PROJECT_VERSION=1
