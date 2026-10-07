@@ -72,6 +72,20 @@ jobs:
             exit 1
           fi
 
+      # Also put the output in the job log itself, for readers that can reach the GitHub API but
+      # not the separate host artifacts are downloaded from
+      - name: Print app output and small screenshot to log
+        if: always()
+        run: |
+          echo "--- app stderr (tail) ---"; tail -n 100 sim-output/app-stderr.txt 2>/dev/null || true
+          echo "--- app stdout (tail) ---"; tail -n 50 sim-output/app-stdout.txt 2>/dev/null || true
+          if [ -f sim-output/screenshot.png ]; then
+            sips -Z 400 -s format jpeg -s formatOptions 40 sim-output/screenshot.png --out small.jpg >/dev/null
+            echo "SCREENSHOT_BASE64_BEGIN"
+            base64 -i small.jpg | fold -w 1000
+            echo "SCREENSHOT_BASE64_END"
+          fi
+
       - name: Upload screenshot and logs
         if: always()
         uses: actions/upload-artifact@v4
